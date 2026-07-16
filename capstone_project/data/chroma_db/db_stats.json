@@ -1,0 +1,13 @@
+{
+  "total_chunks": 1400,
+  "chunk_counts": {
+    "CRF-Governance-Risk-Model-v2026.pdf": 132,
+    "FATF_AML_Guidelines.pdf": 611,
+    "GDPR_Regulation.pdf": 618,
+    "sans_Log_Management_Policy_feb2026.pdf": 11,
+    "SANS_Password_Construction_Standard_April2025.pdf": 4,
+    "sans_Physical_Security_Management_Policy_feb2026.pdf": 12,
+    "vendor-policy.80281467.pdf": 12
+  },
+  "embedding_model": "multi-qa-mpnet-base-dot-v1"
+}
