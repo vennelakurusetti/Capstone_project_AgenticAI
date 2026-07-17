@@ -1,6 +1,10 @@
 # Compliance Advisory & Triage Agent
 
+[![Live Demo](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://capstoneprojectagenticai-n4cur585zhvuhnpmwuupjb.streamlit.app/)
+
 A production-quality AI application for compliance question answering, triage, and audit — built as a college capstone project.
+
+🔗 **Live app:** https://capstoneprojectagenticai-n4cur585zhvuhnpmwuupjb.streamlit.app/
 
 ## Features
 
