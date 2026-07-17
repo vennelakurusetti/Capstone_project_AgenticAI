@@ -44,8 +44,9 @@ httpx==0.28.1
 requests==2.34.2
 
 # Data handling
-pandas==3.0.3
-numpy==2.5.0
+# numpy 2.5.0 and pandas 3.0.3 require Python >=3.12 — use 3.11-compatible versions
+pandas==2.2.2
+numpy==2.2.6
 
 # Visualisation
 plotly==6.8.0
