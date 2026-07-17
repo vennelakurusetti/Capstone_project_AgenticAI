@@ -1,0 +1,50 @@
+# render.yaml
+# -----------
+# Render deployment configuration for the Compliance Advisory & Triage Agent.
+#
+# Deploy steps:
+#   1. Run `python ingest.py` locally to build data/chroma_db/
+#   2. Commit and push data/chroma_db/ to GitHub
+#   3. Connect this repo to Render — it will use this file automatically
+#   4. Set OPENROUTER_API_KEY in the Render dashboard (Environment tab)
+#
+# The app NEVER rebuilds the vector database on startup.
+# It loads data/chroma_db/ directly from the committed repo files.
+
+services:
+  - type: web
+    name: compliance-advisory-agent
+    runtime: python
+    region: oregon          # change to your preferred region
+    plan: free              # upgrade to starter/standard for production
+
+    # Build: install Python dependencies
+    buildCommand: pip install -r requirements.txt
+
+    # Start: launch Streamlit on the port Render assigns via $PORT
+    startCommand: streamlit run main.py --server.port $PORT --server.address 0.0.0.0
+
+    # Environment variables — set secret values in the Render dashboard
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false          # must be set manually in Render dashboard
+
+      # Optional overrides (defaults match the repo layout)
+      - key: CHROMA_PERSIST_DIR
+        value: ./data/chroma_db
+      - key: POLICIES_DIR
+        value: ./data/policies
+      - key: AUDIT_LOG_PATH
+        value: ./logs/audit.json
+      - key: RETRIEVAL_TOP_K
+        value: "5"
+      - key: SIMILARITY_MIN_SCORE
+        value: "0.10"
+      - key: CONFIDENCE_THRESHOLD
+        value: "0.65"
+
+    # Health check — Render pings this to confirm the service is up
+    healthCheckPath: /
+
+    # Auto-deploy on every push to the default branch
+    autoDeploy: true

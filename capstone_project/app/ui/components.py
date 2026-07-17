@@ -3,11 +3,12 @@ app/ui/components.py
 ---------------------
 Reusable Streamlit UI components for the Compliance Advisory & Triage Agent.
 
-Upgrades in this version:
-  * render_sidebar() now shows a full document status table:
-      Filename | Document Type | Pages | Chunks | Embedding Status
-  * "🔄 Rebuild Knowledge Base" button wires to retriever.rebuild_vectorstore()
-  * Dark / Light theme toggle preserved
+Components:
+  * render_sidebar() — document status table, vector DB status, session stats
+  * render_answer_card() — formats a ComplianceAnswer for display
+  * render_audit_table() — paginated audit log
+  * render_stats_dashboard() — metric tiles
+  * Dark / Light theme toggle
 
 Theme:
   Dark  — background #0D1117, secondary #161B22, text #E6EDF3
@@ -64,10 +65,6 @@ def _dark_css() -> str:
         padding: 0.5rem 1.5rem; font-weight: 600; transition: opacity 0.2s;
     }
     .stButton > button:hover { opacity: 0.85; }
-    /* Rebuild button — distinct orange accent */
-    .rebuild-btn > button {
-        background: linear-gradient(135deg, #FF9800, #E65100) !important;
-    }
     .compliance-card {
         background: var(--bg-card); border: 1px solid var(--border);
         border-radius: 12px; padding: 1.5rem; margin: 1rem 0;
@@ -249,7 +246,7 @@ def _doc_table_html(infos: List[LoadedDocumentInfo]) -> str:
 
 def render_sidebar(
     doc_infos: Optional[List[LoadedDocumentInfo]] = None,
-) -> bool:
+) -> None:
     """
     Render the full sidebar.
 
@@ -258,14 +255,7 @@ def render_sidebar(
     doc_infos:
         If provided (after a full ingest), shows live page/chunk counts.
         If None, fetches lightweight info (filename + type only).
-
-    Returns
-    -------
-    bool
-        True if the "Rebuild Knowledge Base" button was clicked.
     """
-    rebuild_requested = False
-
     with st.sidebar:
         # ── Logo ───────────────────────────────────────────────
         st.markdown(
@@ -344,19 +334,9 @@ def render_sidebar(
         else:
             st.markdown(
                 '<span class="status-dot dot-orange"></span>'
-                'Not built — will auto-build on first query',
+                'Not built — run `python ingest.py` first',
                 unsafe_allow_html=True,
             )
-
-        # ── Rebuild button ─────────────────────────────────────
-        st.markdown("")  # spacer
-        if st.button(
-            "🔄 Rebuild Knowledge Base",
-            key="rebuild_kb_btn",
-            use_container_width=True,
-            help="Delete the existing vector database and re-index all PDFs from scratch.",
-        ):
-            rebuild_requested = True
 
         st.divider()
 
@@ -376,8 +356,6 @@ def render_sidebar(
 
         st.divider()
         st.caption("v2.0 · Compliance Advisory Agent")
-
-    return rebuild_requested
 
 
 # ──────────────────────────────────────────────────────────────

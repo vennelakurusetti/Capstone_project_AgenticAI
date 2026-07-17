@@ -1,0 +1,50 @@
+# ── Secrets ────────────────────────────────────────────────────
+.env
+*.pem
+*.key
+
+# ── Python ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── Virtual environments ────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Streamlit ──────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── Logs (runtime-generated, not needed in repo) ───────────────
+logs/audit.json
+logs/audit.db
+logs/streamlit_out.txt
+logs/streamlit_err.txt
+
+# ── IDE / OS ────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.DS_Store
+Thumbs.db
+
+# ── Pytest / Coverage ───────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── data/chroma_db IS intentionally committed ──────────────────
+# Do NOT add data/chroma_db/ here.
+# Run `python ingest.py` locally to build it, then commit the result.
+# The deployed app loads it directly — no rebuild on startup.
+
+# ── Raw PDFs are large; keep them local only ───────────────────
+data/policies/*.pdf

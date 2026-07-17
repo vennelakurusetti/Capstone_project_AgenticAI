@@ -11,13 +11,11 @@ Pages:
 Run with:
     streamlit run main.py
 
-Upgrade notes (v3.0):
-  * Debug Mode sidebar toggle — shows retrieval chunks, scores, query
-    expansions, and final LLM context block after each query.
-  * Embedding model auto-rebuild — if the DB was built with a different
-    model, it is deleted and rebuilt automatically on startup.
-  * retrieve() now returns (chunks, debug_info) — debug_info flows through
-    the agent into ComplianceAnswer.retrieval_debug for the debug panel.
+Before the first run, build the knowledge base once:
+    python ingest.py
+
+The app never builds or rebuilds the vector database at startup.
+If the database is missing, a clear error message with instructions is shown.
 """
 
 from __future__ import annotations
@@ -43,13 +41,10 @@ st.set_page_config(
 # ── Application imports (after page config) ────────────────────
 from app.agents.compliance_agent import run_compliance_agent
 from app.audit.logger import get_audit_stats, get_json_for_download, load_audit_log, log_answer
-from app.rag.chunker import split_documents
 from app.rag.embeddings import _DEFAULT_MODEL as _EMBEDDING_MODEL
-from app.rag.loader import LoadedDocumentInfo, load_policies
+from app.rag.loader import LoadedDocumentInfo
 from app.rag.retriever import (
-    build_vectorstore,
     load_vectorstore,
-    rebuild_vectorstore,
     vectorstore_exists,
 )
 from app.ui.components import (
@@ -72,7 +67,8 @@ def _init_session_state() -> None:
     defaults: dict = {
         "theme": "dark",
         "vectorstore": None,
-        "doc_infos": None,      # List[LoadedDocumentInfo] after first build
+        "doc_infos": None,      # List[LoadedDocumentInfo] after DB load
+        "db_error": None,       # set to error string if DB is missing/broken
         "last_answer": None,
         "question_input": "",
         "debug_mode": False,    # Show retrieval debug panel
@@ -83,113 +79,78 @@ def _init_session_state() -> None:
 
 
 # ──────────────────────────────────────────────────────────────
-# Vector store bootstrap  (cached as a resource)
+# Vector store bootstrap  (load-only, never builds)
 # ──────────────────────────────────────────────────────────────
 
-@st.cache_resource(show_spinner=False)
-def _cached_load_or_build():
-    """
-    Load an existing ChromaDB or build one from the policy PDFs.
+_DB_MISSING_MESSAGE = """
+### ⚠️ Knowledge base not found
 
-    Auto-rebuilds when the embedding model used to build the existing DB
-    differs from the currently active model. This is detected via a
-    ``.model`` sentinel file written alongside the DB.
+The vector database has not been built yet (or was deleted).
+
+**To fix this, run the ingestion script once before starting the app:**
+
+```bash
+python ingest.py
+```
+
+This will:
+- Scan `data/policies/` for PDF files
+- Embed all document chunks using SentenceTransformers
+- Persist the ChromaDB to `data/chroma_db/`
+
+Once ingestion completes, restart the app:
+
+```bash
+streamlit run main.py
+```
+
+> If you have already run `ingest.py` and are still seeing this message,
+> check that the `data/chroma_db/` directory was created and contains
+> `chroma.sqlite3`.
+"""
+
+
+@st.cache_resource(show_spinner=False)
+def _cached_load_vectorstore():
+    """
+    Load an existing ChromaDB.  Never builds — raises immediately if the
+    database is missing so the app can show a clear error message.
 
     Returns
     -------
-    (vectorstore, doc_infos)
-        ``vectorstore`` — Chroma instance (or None if no PDFs found)
-        ``doc_infos``   — list of LoadedDocumentInfo for the sidebar table
+    (vectorstore, doc_infos, error_message)
+        On success: (Chroma instance, List[LoadedDocumentInfo], None)
+        On failure: (None, [], error_string)
     """
-    import shutil
     from app.rag.loader import get_policy_infos
+    import json as _json
 
     cfg = get_settings()
-    sentinel_path = cfg.chroma_persist_dir / ".model"
-    current_model = _EMBEDDING_MODEL
 
-    # Detect model mismatch with existing DB
-    needs_rebuild = False
-    if vectorstore_exists():
-        if sentinel_path.exists():
-            stored_model = sentinel_path.read_text().strip()
-            if stored_model != current_model:
-                st.toast(
-                    f"⚙️ Embedding model changed ({stored_model} → {current_model}). "
-                    "Rebuilding knowledge base…",
-                    icon="🔄",
-                )
-                needs_rebuild = True
-        else:
-            # No sentinel — DB pre-dates this feature; rebuild to be safe
-            needs_rebuild = True
+    if not vectorstore_exists():
+        return None, [], "DB_MISSING"
 
-    # Wipe stale DB if needed
-    if needs_rebuild and cfg.chroma_persist_dir.exists():
-        shutil.rmtree(cfg.chroma_persist_dir, ignore_errors=True)
-
-    # If DB exists and model matches, just load it
-    if vectorstore_exists() and not needs_rebuild:
+    try:
         vs = load_vectorstore()
-        infos = get_policy_infos()   # now returns real page counts via pypdf
-        for info in infos:
-            info.embedding_status = "✓ Done"
+    except Exception as exc:
+        return None, [], f"DB_LOAD_ERROR: {exc}"
 
-        # Populate chunk counts from db_stats.json written during build
-        import json as _json
-        stats_path = cfg.chroma_persist_dir / "db_stats.json"
-        if stats_path.exists():
-            try:
-                db_stats = _json.loads(stats_path.read_text())
-                chunk_counts = db_stats.get("chunk_counts", {})
-                for info in infos:
-                    info.chunks = chunk_counts.get(info.filename, 0)
-            except Exception:
-                pass   # non-fatal — sidebar will show 0 for chunks only
-
-        # Ensure sentinel exists so future restarts don't trigger a rebuild
-        if not sentinel_path.exists():
-            cfg.chroma_persist_dir.mkdir(parents=True, exist_ok=True)
-            sentinel_path.write_text(current_model)
-
-        return vs, infos
-
-    # Build from scratch
-    docs, infos = load_policies()
-    if not docs:
-        return None, infos
-
-    chunks, chunk_counts = split_documents(docs)
+    infos = get_policy_infos()
     for info in infos:
-        info.chunks = chunk_counts.get(info.filename, 0)
+        info.embedding_status = "✓ Done"
 
-    vs = build_vectorstore(chunks)
+    # Populate chunk counts from db_stats.json written during ingest
+    stats_path = cfg.chroma_persist_dir / "db_stats.json"
+    if stats_path.exists():
+        try:
+            db_stats = _json.loads(stats_path.read_text())
+            chunk_counts = db_stats.get("chunk_counts", {})
+            for info in infos:
+                info.chunks = chunk_counts.get(info.filename, 0)
+        except Exception:
+            pass  # non-fatal — sidebar will show 0 for chunks only
 
-    # Write sentinel so future loads know which model built this DB
-    cfg.chroma_persist_dir.mkdir(parents=True, exist_ok=True)
-    sentinel_path.write_text(current_model)
-
-    return vs, infos
-
-
-def _force_rebuild() -> tuple:
-    """
-    Clear the Streamlit cache and rebuild the vector store from scratch.
-    Called when the user clicks "Rebuild Knowledge Base".
-    """
-    _cached_load_or_build.clear()   # bust the @cache_resource
-
-    with st.spinner("🔄 Rebuilding knowledge base — this may take a minute …"):
-        vs, infos = rebuild_vectorstore()
-
-    # Re-write sentinel after manual rebuild
-    if vs is not None:
-        cfg = get_settings()
-        sentinel_path = cfg.chroma_persist_dir / ".model"
-        cfg.chroma_persist_dir.mkdir(parents=True, exist_ok=True)
-        sentinel_path.write_text(_EMBEDDING_MODEL)
-
-    return vs, infos
+    return vs, infos, None
 
 
 # ──────────────────────────────────────────────────────────────
@@ -605,33 +566,26 @@ def main() -> None:
     # Theme CSS (injected before any visible elements)
     inject_theme_css()
 
-    # ── Bootstrap vector store ─────────────────────────────────
+    # ── Bootstrap vector store (load-only) ────────────────────
     if st.session_state["vectorstore"] is None:
-        with st.spinner("⚙️ Loading policy documents …"):
-            vs, infos = _cached_load_or_build()
+        with st.spinner("⚙️ Loading knowledge base …"):
+            vs, infos, error = _cached_load_vectorstore()
             st.session_state["vectorstore"] = vs
             st.session_state["doc_infos"] = infos
+            if error:
+                st.session_state["db_error"] = error
 
     vectorstore = st.session_state["vectorstore"]
     doc_infos: list[LoadedDocumentInfo] = st.session_state.get("doc_infos") or []
+    db_error: str | None = st.session_state.get("db_error")
 
-    # ── Sidebar (returns True if Rebuild was clicked) ──────────
-    rebuild_clicked = render_sidebar(doc_infos=doc_infos)
+    # ── Show DB-missing error and stop if DB not ready ─────────
+    if db_error:
+        st.markdown(_DB_MISSING_MESSAGE)
+        st.stop()
 
-    if rebuild_clicked:
-        vs, infos = _force_rebuild()
-        st.session_state["vectorstore"] = vs
-        st.session_state["doc_infos"] = infos
-        st.session_state["last_answer"] = None
-        if vs is not None:
-            st.success(
-                f"✅ Knowledge base rebuilt — {len(infos)} document(s) indexed."
-            )
-        else:
-            st.warning(
-                "⚠️ No PDF files found in `data/policies/`. Nothing was indexed."
-            )
-        st.rerun()
+    # ── Sidebar ────────────────────────────────────────────────
+    render_sidebar(doc_infos=doc_infos)
 
     # ── Navigation + Developer Tools ──────────────────────────
     with st.sidebar:
