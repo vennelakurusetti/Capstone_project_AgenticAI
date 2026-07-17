@@ -25,10 +25,9 @@ ENV/
 .streamlit/secrets.toml
 
 # ── Logs (runtime-generated, not needed in repo) ───────────────
-logs/audit.json
-logs/audit.db
-logs/streamlit_out.txt
-logs/streamlit_err.txt
+# Keep the logs/ directory itself (via .gitkeep) but ignore contents
+logs/*
+!logs/.gitkeep
 
 # ── IDE / OS ────────────────────────────────────────────────────
 .idea/
